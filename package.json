@@ -1,0 +1,54 @@
+{
+  "name": "whatsapp-bot-baileys",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp con Baileys - Túnel automático, Webhook, API REST, Docker, CI/CD",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "echo \"No tests specified\" && exit 0",
+    "lint": "echo \"No linter configured\" && exit 0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "bot",
+    "whatsapp-web",
+    "cloudflare-tunnel",
+    "webhook",
+    "api"
+  ],
+  "author": "NsMoises",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NsMoises/baileys.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NsMoises/baileys/issues"
+  },
+  "homepage": "https://github.com/NsMoises/baileys#readme",
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "dotenv": "^16.4.5",
+    "mongodb": "^6.8.0",
+    "pino": "^9.3.2",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "bot",
+    "whatsapp-web",
+    "cloudflare-tunnel",
+    "webhook",
+    "api",
+    "render",
+    "docker"
+  ]
+}

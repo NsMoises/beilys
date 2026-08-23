@@ -1,0 +1,53 @@
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+.github
+
+# Node
+node_modules
+package-lock.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Auth & Session
+auth_info/
+session/
+
+# Logs
+*.log
+bot.log
+bot.err.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Build
+dist/
+build/
+
+# Cloudflared binary
+cloudflared.exe
+
+# Docker
+.docker/
+docker-compose.override.yml

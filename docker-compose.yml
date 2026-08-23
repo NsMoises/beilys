@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  whatsapp-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatsapp-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PREFIX=!
+      - BOT_NAME=MiBotWhatsApp
+      - PORT=3000
+      - LOG_LEVEL=info
+      - API_TOKEN=${API_TOKEN}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN}
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB=whatsapp-bot
+    volumes:
+      - ./auth_info:/app/auth_info
+      - ./logs:/app/logs
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: MongoDB for session persistence (if not using external MongoDB)
+  # mongodb:
+  #   image: mongo:7-alpine
+  #   container_name: whatsapp-mongodb
+  #   restart: unless-stopped
+  #   environment:
+  #     MONGO_INITDB_DATABASE: whatsapp-bot
+  #   volumes:
+  #     - mongodb_data:/data/db
+  #   ports:
+  #     - "27017:27017"
+
+# volumes:
+#   mongodb_data:
