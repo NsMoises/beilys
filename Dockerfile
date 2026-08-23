@@ -1,5 +1,5 @@
 # Multi-stage build for WhatsApp Bot with Baileys
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 
 # Install dependencies for Baileys and cloudflared
 RUN apk add --no-cache \
