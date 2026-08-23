@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/NsMoises/baileys#readme",
   "dependencies": {
-    "@whiskeysockets/baileys": "latest",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "dotenv": "^16.4.5",
     "mongodb": "^6.8.0",
     "pino": "^9.3.2",

@@ -28,6 +28,9 @@ const webhookEnabled = Boolean(WEBHOOK_URL && WEBHOOK_TOKEN);
 const forwardedIds = new Set();
 const MAX_FORWARDED_IDS = 4000;
 
+// LID to Phone mapping
+const lidToPhoneJid = new Map();
+
 let status = 'connecting';
 let socket;
 
@@ -146,10 +149,62 @@ async function getAuthState() {
   return { state, saveCreds };
 }
 
-function handleMessage(sock, msg) {
+function resolvePhoneFromLid(msg) {
+  const remoteJid = msg.key.remoteJid;
+  const lid = remoteJid.endsWith('@lid') ? remoteJid : null;
+  
+  if (!lid) return null;
+
+  // 1. Try remoteJidAlt
+  if (msg.key.remoteJidAlt && String(msg.key.remoteJidAlt).endsWith('@s.whatsapp.net')) {
+    return msg.key.remoteJidAlt;
+  }
+
+  // 2. Try participantPn
+  if (msg.key.participantPn && String(msg.key.participantPn).endsWith('@s.whatsapp.net')) {
+    return msg.key.participantPn;
+  }
+
+  // 3. Try senderPn
+  if (msg.key.senderPn && String(msg.key.senderPn).endsWith('@s.whatsapp.net')) {
+    return msg.key.senderPn;
+  }
+
+  // 4. Try participantAlt
+  if (msg.key.participantAlt && String(msg.key.participantAlt).endsWith('@s.whatsapp.net')) {
+    return msg.key.participantAlt;
+  }
+
+  // 5. Try local LID -> PN map
+  const mappedPn = lidToPhoneJid.get(lid);
+  if (mappedPn && String(mappedPn).endsWith('@s.whatsapp.net')) {
+    return mappedPn;
+  }
+
+  // 6. Try socket.signalRepository.lidMapping.getPNForLID(lid)
+  if (socket?.signalRepository?.lidMapping?.getPNForLID) {
+    try {
+      const pn = socket.signalRepository.lidMapping.getPNForLID(lid);
+      if (pn && String(pn).endsWith('@s.whatsapp.net')) {
+        return pn;
+      }
+    } catch (e) {
+      // Ignore errors from signalRepository
+    }
+  }
+
+  return null;
+}
+
+async function handleMessage(sock, msg) {
   if (msg.key.fromMe) return;
   if (msg.key.remoteJid === 'status@broadcast') return;
-  if (!String(msg.key.remoteJid).endsWith('@s.whatsapp.net')) return;
+
+  const remoteJid = msg.key.remoteJid;
+  const isLid = remoteJid.endsWith('@lid');
+  const isRegular = remoteJid.endsWith('@s.whatsapp.net');
+
+  if (!isLid && !isRegular) return;
 
   const text =
     msg.message?.conversation ||
@@ -158,18 +213,31 @@ function handleMessage(sock, msg) {
     msg.message?.videoMessage?.caption ||
     '';
 
-  const jid = msg.key.remoteJid;
-
   if (!text) return;
+
+  let fromPhoneJid = null;
+
+  if (isRegular) {
+    fromPhoneJid = remoteJid;
+  } else if (isLid) {
+    fromPhoneJid = resolvePhoneFromLid(msg);
+    
+    if (!fromPhoneJid) {
+      logger.warn({ lid: msg.key.remoteJid, msgId: msg.key.id }, 'No se pudo resolver LID a telefono real. Esperando lid-mapping.update.');
+      return;
+    }
+  }
+
+  // Normalize to phone number without @s.whatsapp.net
+  const fromPhone = fromPhoneJid.replace('@s.whatsapp.net', '');
 
   if (webhookEnabled) {
     if (forwardedIds.has(msg.key.id)) return;
     rememberForwarded(msg.key.id);
-    const from = jid.replace('@s.whatsapp.net', '');
     forwardToWebhook({
       messages: [{
         id: msg.key.id,
-        from,
+        from: fromPhone,
         text,
         timestamp: msg.messageTimestamp
           ? Math.floor(Number(msg.messageTimestamp) || 0)
@@ -180,6 +248,9 @@ function handleMessage(sock, msg) {
     return;
   }
 
+  // Local command handling (non-webhook mode)
+  const jid = isRegular ? remoteJid : ` ${fromPhoneJid}`; // fallback for local commands
+  
   if (!text.startsWith(PREFIX)) {
     sock.sendMessage(jid, {
       text: `Hola, soy ${BOT_NAME}. Escribe ${PREFIX}help para ver los comandos disponibles.`,
@@ -224,6 +295,14 @@ async function connectToWhatsApp() {
 
   socket.ev.on('creds.update', saveCreds);
 
+  // LID mapping update handler
+  socket.ev.on('lid-mapping.update', ({ lid, pn }) => {
+    if (lid && pn) {
+      lidToPhoneJid.set(lid, pn);
+      logger.debug({ lid, pn }, 'Actualizado mapeo LID -> PN');
+    }
+  });
+
   socket.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -253,11 +332,13 @@ async function connectToWhatsApp() {
     }
   });
 
-  socket.ev.on('messages.upsert', ({ messages, type }) => {
-    if (type === 'notify') {
-      for (const msg of messages) {
-        handleMessage(socket, msg);
-      }
+  socket.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return;
+    
+    // Ignore events that include requestId (typically sent messages)
+    for (const msg of messages) {
+      if (msg.key.requestId) continue;
+      await handleMessage(socket, msg);
     }
   });
 
@@ -267,10 +348,17 @@ async function connectToWhatsApp() {
     for (const update of updates) {
       const id = update.key?.id;
       if (!id) continue;
-      const status = update.status === 2 ? 'delivered' : update.status === 3 ? 'read' : null;
+      
+      // Baileys status mapping: 2 = sent, 3 = delivered, 4 = read
+      let status = null;
+      if (update.status === 2) status = 'sent';
+      else if (update.status === 3) status = 'delivered';
+      else if (update.status === 4) status = 'read';
+      
       if (!status) continue;
       if (forwardedIds.has(`st:${id}:${status}`)) continue;
       rememberForwarded(`st:${id}:${status}`);
+      
       statuses.push({
         id,
         status,
@@ -349,11 +437,55 @@ async function sendMessageHandler(req, res) {
     const jid = normalizeJid(to);
     const sent = await socket.sendMessage(jid, { text });
     logger.info(`Mensaje enviado a ${jid} (id ${sent.key?.id})`);
+    
+    // Note: We don't assume delivery just because Baileys returned an ID.
+    // Delivery status will be received via messages.update events.
     sendJson(res, 200, { ok: true, id: sent.key?.id, to: jid });
   } catch (err) {
-    logger.error({ err }, 'Error al enviar mensaje por API');
-    sendJson(res, 500, { ok: false, error: err.message || 'Error al enviar el mensaje' });
+    // Handle specific error codes from WhatsApp
+    if (err.name === 'BaileysError' || err.message?.includes('463')) {
+      logger.error({ err, to: normalizeJid(to) }, 'Error 463: cuenta restringida o falta tc token');
+      sendJson(res, 500, { 
+        ok: false, 
+        error: 'WhatsApp restringio el envio a este contacto (error 463)' 
+      });
+    } else {
+      logger.error({ err }, 'Error al enviar mensaje por API');
+      sendJson(res, 500, { ok: false, error: err.message || 'Error al enviar el mensaje' });
+    }
   }
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 1e6) {
+        reject(new Error('Body demasiado grande'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+function isAuthorized(req) {
+  if (!API_TOKEN) return false;
+  const header = req.headers['authorization'] || '';
+  return header === `Bearer ${API_TOKEN}`;
+}
+
+function setCorsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+function sendJson(res, code, body) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
 }
 
 const server = http.createServer(async (req, res) => {
